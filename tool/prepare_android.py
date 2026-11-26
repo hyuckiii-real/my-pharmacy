@@ -57,29 +57,15 @@ if "coreLibraryDesugaring(" not in gradle:
     else:
         gradle += "\ndependencies {\n" + dependency + "}\n"
 
-if "text-recognition-korean" not in gradle:
-    korean_dependency = '    implementation("com.google.mlkit:text-recognition-korean:16.0.1")\n'
-    if "dependencies {" in gradle:
+for script in ("chinese", "devanagari", "japanese", "korean"):
+    dependency_name = f"com.google.mlkit:text-recognition-{script}:16.0.1"
+    if dependency_name not in gradle and "dependencies {" in gradle:
+        dependency = f'    implementation("{dependency_name}")\n'
         gradle = gradle.replace(
             "dependencies {",
-            "dependencies {\n" + korean_dependency,
+            "dependencies {\n" + dependency,
             1,
         )
-
-rules_path = Path("android/app/ocr-r8-rules.pro")
-rules = """-dontwarn com.google.mlkit.vision.text.chinese.**
--dontwarn com.google.mlkit.vision.text.devanagari.**
--dontwarn com.google.mlkit.vision.text.japanese.**
-"""
-rules_path.write_text(rules, encoding="utf-8")
-
-if "ocr-r8-rules.pro" not in gradle:
-    gradle = gradle.replace(
-        "release {",
-        """release {
-            proguardFiles("ocr-r8-rules.pro")""",
-        1,
-    )
 
 gradle_path.write_text(gradle, encoding="utf-8")
 root_gradle_path = Path("android/build.gradle.kts")

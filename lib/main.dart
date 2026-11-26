@@ -1,7 +1,9 @@
 import 'dart:convert';
+import 'dart:io';
 
 import 'package:google_mlkit_text_recognition/google_mlkit_text_recognition.dart';
 import 'package:image_picker/image_picker.dart';
+import 'package:image/image.dart' as img;
 
 import 'package:flutter/material.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
@@ -330,14 +332,11 @@ class _MedicationHomeState extends State<MedicationHome> {
     );
 
     var recognizedText = '';
-    final recognizer = TextRecognizer(script: TextRecognitionScript.korean);
     try {
-      final image = InputImage.fromFilePath(photo.path);
-      recognizedText = (await recognizer.processImage(image)).text.trim();
-    } catch (_) {
-      recognizedText = '';
-    } finally {
-      await recognizer.close();
+      recognizedText = await _recognizeMedicationPhoto(photo.path);
+    } catch (error, stackTrace) {
+      debugPrint('Medication OCR failed: $error');
+      debugPrintStack(stackTrace: stackTrace);
     }
 
     if (!mounted) return;
@@ -348,6 +347,86 @@ class _MedicationHomeState extends State<MedicationHome> {
       );
     }
     await _openAddFormWithOcr(recognizedText);
+  }
+
+  Future<String> _recognizeMedicationPhoto(String photoPath) async {
+    final bytes = await File(photoPath).readAsBytes();
+    final decoded = img.decodeImage(bytes);
+
+    // Some gallery photos are HEIC or another format the Dart image decoder
+    // cannot handle. Keep the normal ML Kit path as a fallback for those.
+    if (decoded == null) {
+      final koreanText = await _recognizeAtPath(
+        photoPath,
+        TextRecognitionScript.korean,
+      );
+      if (koreanText.isNotEmpty) return koreanText;
+      return _recognizeAtPath(photoPath, TextRecognitionScript.latin);
+    }
+
+    // Bake EXIF orientation first, then try the other common label directions.
+    // Medicine boxes are often photographed with their text turned sideways.
+    final oriented = img.bakeOrientation(decoded);
+    final tempDirectory =
+        await Directory.systemTemp.createTemp('my_pharmacy_ocr_');
+    try {
+      var bestText = '';
+      var bestScore = 0;
+      for (final angle in [0, 90, 270, 180]) {
+        final frame = angle == 0
+            ? oriented
+            : img.copyRotate(oriented, angle: angle);
+        final frameFile = File('${tempDirectory.path}/scan_$angle.jpg');
+        await frameFile.writeAsBytes(img.encodeJpg(frame, quality: 94));
+
+        var text = await _recognizeAtPath(
+          frameFile.path,
+          TextRecognitionScript.korean,
+        );
+        if (!RegExp(r'[가-힣]').hasMatch(text)) {
+          final latinText = await _recognizeAtPath(
+            frameFile.path,
+            TextRecognitionScript.latin,
+          );
+          if (_ocrTextScore(latinText) > _ocrTextScore(text)) {
+            text = latinText;
+          }
+        }
+
+        final score = _ocrTextScore(text);
+        if (score > bestScore) {
+          bestScore = score;
+          bestText = text;
+        }
+        if (RegExp(r'[가-힣]').allMatches(bestText).length >= 12) break;
+      }
+      return bestText;
+    } finally {
+      await tempDirectory.delete(recursive: true);
+    }
+  }
+
+  Future<String> _recognizeAtPath(
+    String path,
+    TextRecognitionScript script,
+  ) async {
+    final recognizer = TextRecognizer(script: script);
+    try {
+      return (await recognizer.processImage(InputImage.fromFilePath(path)))
+          .text
+          .trim();
+    } catch (error) {
+      debugPrint('OCR failed for $script: $error');
+      return '';
+    } finally {
+      await recognizer.close();
+    }
+  }
+
+  int _ocrTextScore(String text) {
+    final compactLength = text.replaceAll(RegExp(r'\s+'), '').runes.length;
+    final koreanCount = RegExp(r'[가-힣]').allMatches(text).length;
+    return compactLength + koreanCount * 4;
   }
 
   Future<void> _openAddFormWithOcr(String recognizedText) async {

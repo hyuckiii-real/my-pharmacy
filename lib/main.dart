@@ -111,7 +111,7 @@ class ReminderService {
   Future<void> cancel(int id)=>_plugin.cancel(id);
 }
 
-class MedicationHome extends StatefulWidget {class MedicationHome extends StatefulWidget {
+class MedicationHome extends StatefulWidget {
   const MedicationHome({super.key});
 
   @override

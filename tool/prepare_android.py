@@ -50,11 +50,11 @@ if "isCoreLibraryDesugaringEnabled" not in gradle:
         )
 
 if "coreLibraryDesugaring(" not in gradle:
-    gradle = gradle.replace(
-        "dependencies {",
-        'dependencies {\n    coreLibraryDesugaring("com.android.tools:desugar_jdk_libs:2.1.4")',
-        1,
-    )
+    dependency = '    coreLibraryDesugaring("com.android.tools:desugar_jdk_libs:2.1.4")\n'
+    if "dependencies {" in gradle:
+        gradle = gradle.replace("dependencies {", "dependencies {\n" + dependency, 1)
+    else:
+        gradle += "\ndependencies {\n" + dependency + "}\n"
 
 gradle_path.write_text(gradle, encoding="utf-8")
 print("Android notification permissions and desugaring configured.")

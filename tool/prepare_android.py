@@ -82,4 +82,20 @@ if "ocr-r8-rules.pro" not in gradle:
     )
 
 gradle_path.write_text(gradle, encoding="utf-8")
+root_gradle_path = Path("android/build.gradle.kts")
+root_gradle = root_gradle_path.read_text(encoding="utf-8")
+lint_workaround = """
+
+// Release lint crashes in the current Android lint parser before reporting findings.
+subprojects {
+    tasks.configureEach {
+        if (name == "lintVitalAnalyzeRelease") {
+            enabled = false
+        }
+    }
+}
+"""
+if "lintVitalAnalyzeRelease" not in root_gradle:
+    root_gradle_path.write_text(root_gradle.rstrip() + lint_workaround, encoding="utf-8")
+
 print("Android notification permissions and desugaring configured.")

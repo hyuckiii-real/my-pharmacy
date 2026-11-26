@@ -54,17 +54,7 @@ class MyPharmacyApp extends StatelessWidget {
 }
 
 class Medication {
-  const Medication({
-    required this.id,
-    required this.name,
-    required this.dose,
-    required this.hour,
-    required this.minute,
-    this.ingredient = '',
-    this.effect = '',
-    this.instructions = '',
-  });
-
+  const Medication({required this.id, required this.name, required this.dose, required this.hour, required this.minute, this.ingredient = '', this.effect = '', this.instructions = '', this.reminderEnabled = true, this.useAlarm = false});
   final int id;
   final String name;
   final String dose;
@@ -73,96 +63,55 @@ class Medication {
   final String ingredient;
   final String effect;
   final String instructions;
-
-  String get timeLabel =>
-      '${hour.toString().padLeft(2, '0')}:${minute.toString().padLeft(2, '0')}';
-
-  Map<String, Object?> toJson() => {
-        'id': id,
-        'name': name,
-        'dose': dose,
-        'hour': hour,
-        'minute': minute,
-        'ingredient': ingredient,
-        'effect': effect,
-        'instructions': instructions,
-      };
-
-  factory Medication.fromJson(Map<String, dynamic> json) => Medication(
-        id: json['id'] as int,
-        name: json['name'] as String? ?? '',
-        dose: json['dose'] as String? ?? '1회 복용',
-        hour: json['hour'] as int? ?? 9,
-        minute: json['minute'] as int? ?? 0,
-        ingredient: json['ingredient'] as String? ?? '',
-        effect: json['effect'] as String? ?? '',
-        instructions: json['instructions'] as String? ?? '',
-      );
+  final bool reminderEnabled;
+  final bool useAlarm;
+  String get timeLabel => '${hour.toString().padLeft(2, '0')}:${minute.toString().padLeft(2, '0')}';
+  Medication copyWith({bool? reminderEnabled}) => Medication(id:id,name:name,dose:dose,hour:hour,minute:minute,ingredient:ingredient,effect:effect,instructions:instructions,reminderEnabled:reminderEnabled??this.reminderEnabled,useAlarm:useAlarm);
+  Map<String,Object?> toJson()=>{'id':id,'name':name,'dose':dose,'hour':hour,'minute':minute,'ingredient':ingredient,'effect':effect,'instructions':instructions,'reminderEnabled':reminderEnabled,'useAlarm':useAlarm};
+  factory Medication.fromJson(Map<String,dynamic> json)=>Medication(id:json['id'] as int,name:json['name'] as String? ?? '',dose:json['dose'] as String? ?? '1회 복용',hour:json['hour'] as int? ?? 9,minute:json['minute'] as int? ?? 0,ingredient:json['ingredient'] as String? ?? '',effect:json['effect'] as String? ?? '',instructions:json['instructions'] as String? ?? '',reminderEnabled:json['reminderEnabled'] as bool? ?? true,useAlarm:json['useAlarm'] as bool? ?? false);
 }
 
 class ReminderService {
   ReminderService._();
-
-  static final instance = ReminderService._();
-  final FlutterLocalNotificationsPlugin _plugin =
-      FlutterLocalNotificationsPlugin();
-  bool _initialized = false;
-
+  static final instance=ReminderService._();
+  final FlutterLocalNotificationsPlugin _plugin=FlutterLocalNotificationsPlugin();
+  bool _initialized=false;
   Future<void> initialize() async {
-    if (_initialized) return;
+    if(_initialized)return;
     tz_data.initializeTimeZones();
-    final zone = await FlutterTimezone.getLocalTimezone();
+    final zone=await FlutterTimezone.getLocalTimezone();
     tz.setLocalLocation(tz.getLocation(zone.identifier));
-    const settings = InitializationSettings(
-      android: AndroidInitializationSettings('@mipmap/ic_launcher'),
-    );
+    const settings=InitializationSettings(android:AndroidInitializationSettings('@mipmap/ic_launcher'));
     await _plugin.initialize(settings);
-    _initialized = true;
+    _initialized=true;
   }
-
-  Future<bool> requestPermission() async {
-    final android = _plugin.resolvePlatformSpecificImplementation<
-        AndroidFlutterLocalNotificationsPlugin>();
-    return await android?.requestNotificationsPermission() ?? false;
-  }
-
-  Future<void> scheduleDaily(Medication medicine) async {
-    final now = tz.TZDateTime.now(tz.local);
-    var first = tz.TZDateTime(
-      tz.local,
-      now.year,
-      now.month,
-      now.day,
-      medicine.hour,
-      medicine.minute,
-    );
-    if (!first.isAfter(now)) {
-      first = first.add(const Duration(days: 1));
+  AndroidFlutterLocalNotificationsPlugin? get _android=>_plugin.resolvePlatformSpecificImplementation<AndroidFlutterLocalNotificationsPlugin>();
+  Future<bool> requestPermission() async=>await _android?.requestNotificationsPermission() ?? false;
+  Future<bool> scheduleDaily(Medication medicine) async {
+    await _plugin.cancel(medicine.id);
+    if(!medicine.reminderEnabled)return true;
+    var exact=false;
+    if(medicine.useAlarm){
+      exact=await _android?.canScheduleExactNotifications() ?? false;
+      if(!exact){await _android?.requestExactAlarmsPermission();exact=await _android?.canScheduleExactNotifications() ?? false;}
     }
-
-    await _plugin.zonedSchedule(
-      medicine.id,
-      '${medicine.name} 복용 시간',
-      '${medicine.dose} 복용할 시간이에요.',
-      first,
-      const NotificationDetails(
-        android: AndroidNotificationDetails(
-          'medication_reminders',
-          '복약 알림',
-          channelDescription: '등록한 약의 복용 시각을 알려드립니다.',
-          importance: Importance.high,
-          priority: Priority.high,
-        ),
-      ),
-      androidScheduleMode: AndroidScheduleMode.inexactAllowWhileIdle,
-      matchDateTimeComponents: DateTimeComponents.time,
-    );
+    final now=tz.TZDateTime.now(tz.local);
+    var first=tz.TZDateTime(tz.local,now.year,now.month,now.day,medicine.hour,medicine.minute);
+    if(!first.isAfter(now))first=first.add(const Duration(days:1));
+    final alarm=medicine.useAlarm;
+    await _plugin.zonedSchedule(medicine.id,'${medicine.name} 복용 시간','${medicine.dose} 복용할 시간이에요.',first,
+      NotificationDetails(android:AndroidNotificationDetails(alarm?'medication_alarms':'medication_notifications',alarm?'복약 소리 알람':'복약 알림',
+        channelDescription:alarm?'복용 시각에 소리와 진동으로 알려드립니다.':'등록한 약의 복용 시각을 알려드립니다.',
+        importance:alarm?Importance.max:Importance.high,priority:alarm?Priority.max:Priority.high,
+        category:alarm?AndroidNotificationCategory.alarm:null,playSound:true,enableVibration:alarm)),
+      androidScheduleMode:alarm&&exact?AndroidScheduleMode.exactAllowWhileIdle:AndroidScheduleMode.inexactAllowWhileIdle,
+      matchDateTimeComponents:DateTimeComponents.time);
+    return !alarm||exact;
   }
-
-  Future<void> cancel(int id) => _plugin.cancel(id);
+  Future<void> cancel(int id)=>_plugin.cancel(id);
 }
 
-class MedicationHome extends StatefulWidget {
+class MedicationHome extends StatefulWidget {class MedicationHome extends StatefulWidget {
   const MedicationHome({super.key});
 
   @override
@@ -205,19 +154,21 @@ class _MedicationHomeState extends State<MedicationHome> {
     );
   }
 
-  Future<void> _addMedicine(Medication medicine) async {
-    await ReminderService.instance.requestPermission();
-    await ReminderService.instance.scheduleDaily(medicine);
-    setState(() {
-      _medicines = [..._medicines, medicine]
-        ..sort((a, b) => a.timeLabel.compareTo(b.timeLabel));
+  Future<void> _saveMedicine(Medication medicine) async {
+    if(medicine.reminderEnabled)await ReminderService.instance.requestPermission();
+    final exact=await ReminderService.instance.scheduleDaily(medicine);
+    setState((){
+      final index=_medicines.indexWhere((item)=>item.id==medicine.id);
+      if(index<0){_medicines=[..._medicines,medicine];}else{_medicines=[..._medicines]..[index]=medicine;}
+      _medicines.sort((a,b)=>a.timeLabel.compareTo(b.timeLabel));
     });
     await _saveAll();
-    if (mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('약과 매일 알림을 등록했어요.')),
-      );
-    }
+    if(!mounted)return;
+    final message=!medicine.reminderEnabled?'약 정보를 저장했어요. 복약 알림은 꺼져 있어요.':medicine.useAlarm&&!exact?'정확한 알람 권한이 없어 일반 시각 알림으로 등록했어요.':medicine.useAlarm?'약과 소리 알람을 등록했어요.':'약과 매일 알림을 등록했어요.';
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content:Text(message)));
+  }
+  Future<void> _toggleReminder(Medication medicine) async {
+    await _saveMedicine(medicine.copyWith(reminderEnabled:!medicine.reminderEnabled));
   }
 
   Future<void> _deleteMedicine(Medication medicine) async {
@@ -229,13 +180,12 @@ class _MedicationHomeState extends State<MedicationHome> {
   }
 
   Future<void> _openAddForm() async {
-    final medicine = await showModalBottomSheet<Medication>(
-      context: context,
-      isScrollControlled: true,
-      useSafeArea: true,
-      builder: (_) => const AddMedicationSheet(),
-    );
-    if (medicine != null) await _addMedicine(medicine);
+    final medicine = await showModalBottomSheet<Medication>(context:context,isScrollControlled:true,useSafeArea:true,builder:(_)=>const AddMedicationSheet());
+    if(medicine!=null)await _saveMedicine(medicine);
+  }
+  Future<void> _openEditForm(Medication medicine) async {
+    final updated=await showModalBottomSheet<Medication>(context:context,isScrollControlled:true,useSafeArea:true,builder:(_)=>AddMedicationSheet(initialMedication:medicine));
+    if(updated!=null)await _saveMedicine(updated);
   }
 
   void _showScanNotice() {
@@ -308,33 +258,21 @@ class _MedicationHomeState extends State<MedicationHome> {
   }
 
   void _showMedicineDetails(Medication medicine) {
-    showModalBottomSheet<void>(
-      context: context,
-      showDragHandle: true,
-      builder: (context) => SafeArea(
-        child: Padding(
-          padding: const EdgeInsets.fromLTRB(24, 8, 24, 28),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(medicine.name,
-                  style: Theme.of(context).textTheme.headlineSmall),
-              const SizedBox(height: 8),
-              Text('${medicine.dose} · 매일 ${medicine.timeLabel}'),
-              const SizedBox(height: 18),
-              _InfoLine(label: '성분', value: medicine.ingredient),
-              _InfoLine(label: '효능', value: medicine.effect),
-              _InfoLine(label: '복용 안내', value: medicine.instructions),
-              const SizedBox(height: 10),
-              const Text(
-                '복용 방법은 처방전이나 약 봉투의 안내를 우선 확인하세요.',
-                style: TextStyle(color: Color(0xFF66736F), fontSize: 13),
-              ),
-            ],
-          ),
-        ),
-      ),
+    showModalBottomSheet<void>(context:context,showDragHandle:true,isScrollControlled:true,useSafeArea:true,
+      builder:(sheetContext)=>SafeArea(child:Padding(padding:const EdgeInsets.fromLTRB(24,8,24,24),
+        child:Column(mainAxisSize:MainAxisSize.min,crossAxisAlignment:CrossAxisAlignment.start,children:[
+          Text(medicine.name,style:Theme.of(sheetContext).textTheme.headlineSmall),
+          const SizedBox(height:8),Text('${medicine.dose} · 매일 ${medicine.timeLabel}'),
+          const SizedBox(height:6),Text(!medicine.reminderEnabled?'복약 알림 꺼짐':medicine.useAlarm?'소리 알람 사용 중':'일반 알림 사용 중'),
+          const SizedBox(height:18),_InfoLine(label:'성분',value:medicine.ingredient),_InfoLine(label:'효능',value:medicine.effect),_InfoLine(label:'복용 안내',value:medicine.instructions),
+          const SizedBox(height:8),const Text('복용 방법은 처방전이나 약 봉투의 안내를 우선 확인하세요.',style:TextStyle(color:Color(0xFF66736F),fontSize:13)),
+          const SizedBox(height:16),Row(children:[
+            Expanded(child:OutlinedButton.icon(onPressed:(){Navigator.pop(sheetContext);_openEditForm(medicine);},icon:const Icon(Icons.edit_outlined),label:const Text('수정'))),
+            const SizedBox(width:10),
+            Expanded(child:FilledButton.tonalIcon(onPressed:(){Navigator.pop(sheetContext);_toggleReminder(medicine);},icon:Icon(medicine.reminderEnabled?Icons.notifications_off_outlined:Icons.notifications_active_outlined),label:Text(medicine.reminderEnabled?'알림 끄기':'알림 켜기'))),
+          ]),
+        ]),
+      )),
     );
   }
 }
@@ -615,7 +553,8 @@ class PharmacistPage extends StatelessWidget {
 }
 
 class AddMedicationSheet extends StatefulWidget {
-  const AddMedicationSheet({super.key});
+  const AddMedicationSheet({super.key, this.initialMedication});
+  final Medication? initialMedication;
 
   @override
   State<AddMedicationSheet> createState() => _AddMedicationSheetState();
@@ -623,12 +562,17 @@ class AddMedicationSheet extends StatefulWidget {
 
 class _AddMedicationSheetState extends State<AddMedicationSheet> {
   final _formKey = GlobalKey<FormState>();
-  final _name = TextEditingController();
-  final _dose = TextEditingController(text: '1정');
-  final _ingredient = TextEditingController();
-  final _effect = TextEditingController();
-  final _instructions = TextEditingController();
-  TimeOfDay _time = const TimeOfDay(hour: 11, minute: 0);
+  late final TextEditingController _name,_dose,_ingredient,_effect,_instructions;
+  late TimeOfDay _time;
+  late bool _reminderEnabled,_useAlarm;
+  @override
+  void initState(){super.initState();final m=widget.initialMedication;
+    _name=TextEditingController(text:m?.name??'');_dose=TextEditingController(text:m?.dose??'1정');
+    _ingredient=TextEditingController(text:m?.ingredient??'');_effect=TextEditingController(text:m?.effect??'');
+    _instructions=TextEditingController(text:m?.instructions??'');
+    _time=m==null?const TimeOfDay(hour:11,minute:0):TimeOfDay(hour:m.hour,minute:m.minute);
+    _reminderEnabled=m?.reminderEnabled??true;_useAlarm=m?.useAlarm??false;
+  }
 
   @override
   void dispose() {
@@ -647,7 +591,8 @@ class _AddMedicationSheetState extends State<AddMedicationSheet> {
 
   void _submit() {
     if (!_formKey.currentState!.validate()) return;
-    final id = DateTime.now().millisecondsSinceEpoch.remainder(2147483647);
+    final m=widget.initialMedication;
+    final id=m?.id??DateTime.now().millisecondsSinceEpoch.remainder(2147483647);
     Navigator.pop(
       context,
       Medication(
@@ -659,6 +604,8 @@ class _AddMedicationSheetState extends State<AddMedicationSheet> {
         ingredient: _ingredient.text.trim(),
         effect: _effect.text.trim(),
         instructions: _instructions.text.trim(),
+        reminderEnabled:_reminderEnabled,
+        useAlarm:_useAlarm,
       ),
     );
   }
@@ -673,8 +620,7 @@ class _AddMedicationSheetState extends State<AddMedicationSheet> {
         child: ListView(
           shrinkWrap: true,
           children: [
-            Text('복용약 등록',
-                style: Theme.of(context).textTheme.headlineSmall),
+            Text(widget.initialMedication==null?'복용약 등록':'복용약 수정',style:Theme.of(context).textTheme.headlineSmall),
             const SizedBox(height: 8),
             const Text(
               '약 봉투나 처방전의 이름과 복용 안내를 확인해 입력해 주세요.',
@@ -709,7 +655,7 @@ class _AddMedicationSheetState extends State<AddMedicationSheet> {
             OutlinedButton.icon(
               onPressed: _chooseTime,
               icon: const Icon(Icons.alarm_outlined),
-              label: Text('매일 알림 ${_time.format(context)}'),
+              label: Text('매일 복용 시각 ${_time.format(context)}'),
               style: OutlinedButton.styleFrom(
                 minimumSize: const Size.fromHeight(50),
                 shape: RoundedRectangleBorder(
@@ -717,7 +663,16 @@ class _AddMedicationSheetState extends State<AddMedicationSheet> {
                 ),
               ),
             ),
-            const SizedBox(height: 12),
+            const SizedBox(height:12),
+            SwitchListTile(contentPadding:EdgeInsets.zero,title:const Text('복약 알림 받기'),subtitle:const Text('원할 때 이 약의 알림을 끌 수 있어요.'),value:_reminderEnabled,onChanged:(v)=>setState(()=>_reminderEnabled=v)),
+            if(_reminderEnabled)...[
+              const Text('알림 방식'),Wrap(spacing:8,children:[
+                ChoiceChip(avatar:const Icon(Icons.notifications_outlined,size:18),label:const Text('일반 알림'),selected:!_useAlarm,onSelected:(_)=>setState(()=>_useAlarm=false)),
+                ChoiceChip(avatar:const Icon(Icons.alarm,size:18),label:const Text('소리 알람'),selected:_useAlarm,onSelected:(_)=>setState(()=>_useAlarm=true)),
+              ]),
+              if(_useAlarm)const Text('정확한 시각에 소리와 진동으로 알려요. Android의 “알람 및 리마인더” 권한이 필요하며, 허용하지 않으면 일반 시각 알림으로 예약돼요.',style:TextStyle(color:Color(0xFF66736F),fontSize:13)),
+            ],
+            const SizedBox(height:12),
             TextFormField(
               controller: _ingredient,
               textInputAction: TextInputAction.next,
@@ -750,7 +705,7 @@ class _AddMedicationSheetState extends State<AddMedicationSheet> {
               style: FilledButton.styleFrom(
                 minimumSize: const Size.fromHeight(52),
               ),
-              child: const Text('저장하고 알림 등록'),
+              child: Text(widget.initialMedication==null?'저장':'수정 내용 저장'),
             ),
           ],
         ),
@@ -835,6 +790,7 @@ class _MedicineCard extends StatelessWidget {
                     const SizedBox(height: 4),
                     Text('${medicine.dose} · 매일 ${medicine.timeLabel}',
                         style: const TextStyle(color: Color(0xFF66736F))),
+                    Text(!medicine.reminderEnabled?'알림 꺼짐':medicine.useAlarm?'소리 알람':'일반 알림',style:const TextStyle(color:Color(0xFF267B73),fontSize:12)),
                   ],
                 ),
               ),

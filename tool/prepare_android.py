@@ -5,6 +5,7 @@ manifest = manifest_path.read_text(encoding="utf-8")
 
 permissions = [
     '    <uses-permission android:name="android.permission.POST_NOTIFICATIONS"/>',
+    '    <uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM"/>',
     '    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED"/>',
 ]
 for permission in permissions:

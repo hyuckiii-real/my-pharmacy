@@ -66,29 +66,18 @@ if "text-recognition-korean" not in gradle:
             1,
         )
 
-rules_path = Path("android/app/proguard-rules.pro")
-rules = rules_path.read_text(encoding="utf-8") if rules_path.exists() else ""
-optional_script_rules = """-dontwarn com.google.mlkit.vision.text.chinese.ChineseTextRecognizerOptions$Builder
--dontwarn com.google.mlkit.vision.text.chinese.ChineseTextRecognizerOptions
--dontwarn com.google.mlkit.vision.text.devanagari.DevanagariTextRecognizerOptions$Builder
--dontwarn com.google.mlkit.vision.text.devanagari.DevanagariTextRecognizerOptions
--dontwarn com.google.mlkit.vision.text.japanese.JapaneseTextRecognizerOptions$Builder
--dontwarn com.google.mlkit.vision.text.japanese.JapaneseTextRecognizerOptions
+rules_path = Path("android/app/ocr-r8-rules.pro")
+rules = """-dontwarn com.google.mlkit.vision.text.chinese.**
+-dontwarn com.google.mlkit.vision.text.devanagari.**
+-dontwarn com.google.mlkit.vision.text.japanese.**
 """
-for rule in optional_script_rules.strip().splitlines():
-    if rule not in rules:
-        rules = rules.rstrip() + "\n" + rule
-if rules:
-    rules_path.write_text(rules + "\n", encoding="utf-8")
+rules_path.write_text(rules, encoding="utf-8")
 
-if "proguard-rules.pro" not in gradle:
+if "ocr-r8-rules.pro" not in gradle:
     gradle = gradle.replace(
         "release {",
         """release {
-            proguardFiles(
-                getDefaultProguardFile("proguard-android-optimize.txt"),
-                "proguard-rules.pro",
-            )""",
+            proguardFiles("ocr-r8-rules.pro")""",
         1,
     )
 

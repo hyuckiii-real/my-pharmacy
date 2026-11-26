@@ -1,5 +1,8 @@
 import 'dart:convert';
 
+import 'package:google_mlkit_text_recognition/google_mlkit_text_recognition.dart';
+import 'package:image_picker/image_picker.dart';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:flutter_timezone/flutter_timezone.dart';
@@ -189,6 +192,7 @@ class MedicationHome extends StatefulWidget {
 class _MedicationHomeState extends State<MedicationHome> {
   static const _storageKey = 'medications_v1';
   final SharedPreferencesAsync _preferences = SharedPreferencesAsync();
+  final ImagePicker _imagePicker = ImagePicker();
   List<Medication> _medicines = [];
   bool _loading = true;
   int _tab = 0;
@@ -256,23 +260,104 @@ class _MedicationHomeState extends State<MedicationHome> {
     if(updated!=null)await _saveMedicine(updated);
   }
 
-  void _showScanNotice() {
-    showDialog<void>(
+  Future<void> _showScanNotice() async {
+    final choice = await showModalBottomSheet<String>(
       context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('촬영 등록은 준비 중이에요'),
-        content: const Text(
-          '다음 단계에서 약 봉지와 처방전의 글자 인식, 알약 식별 후보 검색을 추가할게요. '
-          '현재는 약 이름과 복용 정보를 직접 입력할 수 있어요.',
+      showDragHandle: true,
+      builder: (sheetContext) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            ListTile(
+              leading: const Icon(Icons.photo_camera_outlined),
+              title: const Text('카메라로 촬영'),
+              onTap: () => Navigator.pop(sheetContext, 'camera'),
+            ),
+            ListTile(
+              leading: const Icon(Icons.photo_library_outlined),
+              title: const Text('사진에서 선택'),
+              onTap: () => Navigator.pop(sheetContext, 'gallery'),
+            ),
+            ListTile(
+              leading: const Icon(Icons.edit_note),
+              title: const Text('직접 입력'),
+              onTap: () => Navigator.pop(sheetContext, 'manual'),
+            ),
+          ],
         ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('확인'),
-          ),
-        ],
       ),
     );
+    if (choice == null) return;
+    if (choice == 'manual') {
+      await _openAddForm();
+      return;
+    }
+
+    XFile? photo;
+    try {
+      photo = await _imagePicker.pickImage(
+        source: choice == 'camera' ? ImageSource.camera : ImageSource.gallery,
+        imageQuality: 90,
+        maxWidth: 2400,
+      );
+    } catch (_) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('사진을 열지 못했어요. 직접 입력해 주세요.')),
+        );
+        await _openAddFormWithOcr('');
+      }
+      return;
+    }
+    if (photo == null || !mounted) return;
+
+    showDialog<void>(
+      context: context,
+      barrierDismissible: false,
+      builder: (dialogContext) => const AlertDialog(
+        content: Row(
+          children: [
+            SizedBox(
+              width: 24,
+              height: 24,
+              child: CircularProgressIndicator(strokeWidth: 2),
+            ),
+            SizedBox(width: 16),
+            Expanded(child: Text('사진에서 글자를 읽고 있어요.')),
+          ],
+        ),
+      ),
+    );
+
+    var recognizedText = '';
+    final recognizer = TextRecognizer(script: TextRecognitionScript.korean);
+    try {
+      final image = InputImage.fromFilePath(photo.path);
+      recognizedText = (await recognizer.processImage(image)).text.trim();
+    } catch (_) {
+      recognizedText = '';
+    } finally {
+      await recognizer.close();
+    }
+
+    if (!mounted) return;
+    Navigator.of(context, rootNavigator: true).pop();
+    if (recognizedText.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('글자를 찾지 못했어요. 직접 입력할 수 있어요.')),
+      );
+    }
+    await _openAddFormWithOcr(recognizedText);
+  }
+
+  Future<void> _openAddFormWithOcr(String recognizedText) async {
+    final medicine = await showModalBottomSheet<Medication>(
+      context: context,
+      isScrollControlled: true,
+      useSafeArea: true,
+      builder: (_) => AddMedicationSheet(ocrText: recognizedText),
+    );
+    if (medicine != null) await _saveMedicine(medicine);
   }
 
   @override
@@ -651,8 +736,14 @@ class PharmacistPage extends StatelessWidget {
 }
 
 class AddMedicationSheet extends StatefulWidget {
-  const AddMedicationSheet({super.key, this.initialMedication});
+  const AddMedicationSheet({
+    super.key,
+    this.initialMedication,
+    this.ocrText,
+  });
+
   final Medication? initialMedication;
+  final String? ocrText;
 
   @override
   State<AddMedicationSheet> createState() => _AddMedicationSheetState();
@@ -687,8 +778,30 @@ class _AddMedicationSheetState extends State<AddMedicationSheet> {
     if (selected != null) setState(() => _time = selected);
   }
 
-  void _submit() {
+  Future<void> _submit() async {
     if (!_formKey.currentState!.validate()) return;
+    if (widget.ocrText != null) {
+      final confirmed = await showDialog<bool>(
+        context: context,
+        builder: (dialogContext) => AlertDialog(
+          title: const Text('입력한 복용 정보를 확인해 주세요'),
+          content: Text(
+            '약 이름: ${_name.text.trim()}\n1회 복용량: ${_dose.text.trim()}\n복용 시각: ${_time.format(context)}\n\n촬영 인식 결과와 약 봉투·처방전을 대조하셨나요?',
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(dialogContext, false),
+              child: const Text('다시 확인'),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.pop(dialogContext, true),
+              child: const Text('확인 후 등록'),
+            ),
+          ],
+        ),
+      );
+      if (confirmed != true) return;
+    }
     final m=widget.initialMedication;
     final id=m?.id??DateTime.now().millisecondsSinceEpoch.remainder(2147483647);
     Navigator.pop(
@@ -713,6 +826,14 @@ class _AddMedicationSheetState extends State<AddMedicationSheet> {
   @override
   Widget build(BuildContext context) {
     final bottom = MediaQuery.viewInsetsOf(context).bottom;
+    final ocrText = widget.ocrText;
+    final ocrCandidates = (ocrText ?? '')
+        .split(RegExp(r'\r?\n'))
+        .map((line) => line.trim())
+        .where((line) => line.length >= 2 && line.length <= 32)
+        .where((line) => !RegExp(r'^(환자|연락처|전화|주소|약국|처방)').hasMatch(line))
+        .take(6)
+        .toList();
     return Padding(
       padding: EdgeInsets.fromLTRB(20, 14, 20, 20 + bottom),
       child: Form(
@@ -727,6 +848,53 @@ class _AddMedicationSheetState extends State<AddMedicationSheet> {
               style: TextStyle(color: Color(0xFF66736F)),
             ),
             const SizedBox(height: 18),
+            if (ocrText != null) ...[
+              Container(
+                padding: const EdgeInsets.all(14),
+                decoration: BoxDecoration(
+                  color: const Color(0xFFE8F3F0),
+                  borderRadius: BorderRadius.circular(14),
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text('촬영 인식 결과 확인',
+                        style: TextStyle(fontWeight: FontWeight.w700)),
+                    const SizedBox(height: 6),
+                    Text(
+                      ocrText.isEmpty
+                          ? '읽을 수 있는 글자를 찾지 못했어요. 아래에 약 정보를 직접 입력해 주세요.'
+                          : '인식된 글자는 참고용이에요. 약 봉투나 처방전과 대조해 확인하고 수정해 주세요.',
+                      style: const TextStyle(color: Color(0xFF53615D)),
+                    ),
+                    if (ocrCandidates.isNotEmpty) ...[
+                      const SizedBox(height: 10),
+                      const Text('약 이름 후보를 눌러 입력할 수 있어요.'),
+                      const SizedBox(height: 6),
+                      Wrap(
+                        spacing: 6,
+                        runSpacing: 4,
+                        children: ocrCandidates
+                            .map((line) => ActionChip(
+                                  label: Text(line,
+                                      maxLines: 1,
+                                      overflow: TextOverflow.ellipsis),
+                                  onPressed: () => setState(() => _name.text = line),
+                                ))
+                            .toList(),
+                      ),
+                    ],
+                    if (ocrText.isNotEmpty) ...[
+                      const SizedBox(height: 8),
+                      const Text('사진에서 읽은 전체 글자'),
+                      const SizedBox(height: 4),
+                      SelectableText(ocrText, maxLines: 5),
+                    ],
+                  ],
+                ),
+              ),
+              const SizedBox(height: 14),
+            ],
             TextFormField(
               controller: _name,
               autofocus: true,
@@ -814,7 +982,7 @@ class _AddMedicationSheetState extends State<AddMedicationSheet> {
               style: FilledButton.styleFrom(
                 minimumSize: const Size.fromHeight(52),
               ),
-              child: Text(widget.initialMedication==null?'저장':'수정 내용 저장'),
+              child: Text(widget.ocrText != null ? '내용 확인 후 등록' : widget.initialMedication==null?'저장':'수정 내용 저장'),
             ),
           ],
         ),

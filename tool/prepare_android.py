@@ -57,5 +57,14 @@ if "coreLibraryDesugaring(" not in gradle:
     else:
         gradle += "\ndependencies {\n" + dependency + "}\n"
 
+if "text-recognition-korean" not in gradle:
+    korean_dependency = '    implementation("com.google.mlkit:text-recognition-korean:16.0.1")\n'
+    if "dependencies {" in gradle:
+        gradle = gradle.replace(
+            "dependencies {",
+            "dependencies {\n" + korean_dependency,
+            1,
+        )
+
 gradle_path.write_text(gradle, encoding="utf-8")
 print("Android notification permissions and desugaring configured.")

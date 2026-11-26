@@ -54,7 +54,21 @@ class MyPharmacyApp extends StatelessWidget {
 }
 
 class Medication {
-  const Medication({required this.id, required this.name, required this.dose, required this.hour, required this.minute, this.ingredient = '', this.effect = '', this.instructions = '', this.reminderEnabled = true, this.useAlarm = false});
+  const Medication({
+    required this.id,
+    required this.name,
+    required this.dose,
+    required this.hour,
+    required this.minute,
+    this.ingredient = '',
+    this.effect = '',
+    this.instructions = '',
+    this.reminderEnabled = true,
+    this.useAlarm = false,
+    this.isTaking = true,
+    this.stoppedAt,
+  });
+
   final int id;
   final String name;
   final String dose;
@@ -65,10 +79,64 @@ class Medication {
   final String instructions;
   final bool reminderEnabled;
   final bool useAlarm;
-  String get timeLabel => '${hour.toString().padLeft(2, '0')}:${minute.toString().padLeft(2, '0')}';
-  Medication copyWith({bool? reminderEnabled}) => Medication(id:id,name:name,dose:dose,hour:hour,minute:minute,ingredient:ingredient,effect:effect,instructions:instructions,reminderEnabled:reminderEnabled??this.reminderEnabled,useAlarm:useAlarm);
-  Map<String,Object?> toJson()=>{'id':id,'name':name,'dose':dose,'hour':hour,'minute':minute,'ingredient':ingredient,'effect':effect,'instructions':instructions,'reminderEnabled':reminderEnabled,'useAlarm':useAlarm};
-  factory Medication.fromJson(Map<String,dynamic> json)=>Medication(id:json['id'] as int,name:json['name'] as String? ?? '',dose:json['dose'] as String? ?? '1회 복용',hour:json['hour'] as int? ?? 9,minute:json['minute'] as int? ?? 0,ingredient:json['ingredient'] as String? ?? '',effect:json['effect'] as String? ?? '',instructions:json['instructions'] as String? ?? '',reminderEnabled:json['reminderEnabled'] as bool? ?? true,useAlarm:json['useAlarm'] as bool? ?? false);
+  final bool isTaking;
+  final int? stoppedAt;
+
+  String get timeLabel =>
+      '${hour.toString().padLeft(2, '0')}:${minute.toString().padLeft(2, '0')}';
+
+  Medication copyWith({bool? reminderEnabled, bool? isTaking}) {
+    final nextIsTaking = isTaking ?? this.isTaking;
+    final nextStoppedAt = nextIsTaking
+        ? null
+        : (this.isTaking
+            ? DateTime.now().millisecondsSinceEpoch
+            : stoppedAt);
+    return Medication(
+      id: id,
+      name: name,
+      dose: dose,
+      hour: hour,
+      minute: minute,
+      ingredient: ingredient,
+      effect: effect,
+      instructions: instructions,
+      reminderEnabled: reminderEnabled ?? this.reminderEnabled,
+      useAlarm: useAlarm,
+      isTaking: nextIsTaking,
+      stoppedAt: nextStoppedAt,
+    );
+  }
+
+  Map<String, Object?> toJson() => {
+        'id': id,
+        'name': name,
+        'dose': dose,
+        'hour': hour,
+        'minute': minute,
+        'ingredient': ingredient,
+        'effect': effect,
+        'instructions': instructions,
+        'reminderEnabled': reminderEnabled,
+        'useAlarm': useAlarm,
+        'isTaking': isTaking,
+        'stoppedAt': stoppedAt,
+      };
+
+  factory Medication.fromJson(Map<String, dynamic> json) => Medication(
+        id: json['id'] as int,
+        name: json['name'] as String? ?? '',
+        dose: json['dose'] as String? ?? '1회 복용',
+        hour: json['hour'] as int? ?? 9,
+        minute: json['minute'] as int? ?? 0,
+        ingredient: json['ingredient'] as String? ?? '',
+        effect: json['effect'] as String? ?? '',
+        instructions: json['instructions'] as String? ?? '',
+        reminderEnabled: json['reminderEnabled'] as bool? ?? true,
+        useAlarm: json['useAlarm'] as bool? ?? false,
+        isTaking: json['isTaking'] as bool? ?? true,
+        stoppedAt: json['stoppedAt'] as int?,
+      );
 }
 
 class ReminderService {
@@ -89,7 +157,7 @@ class ReminderService {
   Future<bool> requestPermission() async=>await _android?.requestNotificationsPermission() ?? false;
   Future<bool> scheduleDaily(Medication medicine) async {
     await _plugin.cancel(medicine.id);
-    if(!medicine.reminderEnabled)return true;
+    if(!medicine.reminderEnabled || !medicine.isTaking)return true;
     var exact=false;
     if(medicine.useAlarm){
       exact=await _android?.canScheduleExactNotifications() ?? false;
@@ -155,7 +223,7 @@ class _MedicationHomeState extends State<MedicationHome> {
   }
 
   Future<void> _saveMedicine(Medication medicine) async {
-    if(medicine.reminderEnabled)await ReminderService.instance.requestPermission();
+    if(medicine.reminderEnabled && medicine.isTaking)await ReminderService.instance.requestPermission();
     final exact=await ReminderService.instance.scheduleDaily(medicine);
     setState((){
       final index=_medicines.indexWhere((item)=>item.id==medicine.id);
@@ -164,7 +232,7 @@ class _MedicationHomeState extends State<MedicationHome> {
     });
     await _saveAll();
     if(!mounted)return;
-    final message=!medicine.reminderEnabled?'약 정보를 저장했어요. 복약 알림은 꺼져 있어요.':medicine.useAlarm&&!exact?'정확한 알람 권한이 없어 일반 시각 알림으로 등록했어요.':medicine.useAlarm?'약과 소리 알람을 등록했어요.':'약과 매일 알림을 등록했어요.';
+    final message=!medicine.isTaking?'복용하지 않음으로 변경했어요. 알림은 중지됐어요.':!medicine.reminderEnabled?'약 정보를 저장했어요. 복약 알림은 꺼져 있어요.':medicine.useAlarm&&!exact?'정확한 알람 권한이 없어 일반 시각 알림으로 등록했어요.':medicine.useAlarm?'약과 소리 알람을 등록했어요.':'약과 매일 알림을 등록했어요.';
     ScaffoldMessenger.of(context).showSnackBar(SnackBar(content:Text(message)));
   }
   Future<void> _toggleReminder(Medication medicine) async {
@@ -211,7 +279,7 @@ class _MedicationHomeState extends State<MedicationHome> {
   Widget build(BuildContext context) {
     final pages = [
       TodayPage(
-        medicines: _medicines,
+        medicines: _medicines.where((medicine) => medicine.isTaking).toList(),
         loading: _loading,
         onAdd: _openAddForm,
         onScan: _showScanNotice,
@@ -263,7 +331,7 @@ class _MedicationHomeState extends State<MedicationHome> {
         child:Column(mainAxisSize:MainAxisSize.min,crossAxisAlignment:CrossAxisAlignment.start,children:[
           Text(medicine.name,style:Theme.of(sheetContext).textTheme.headlineSmall),
           const SizedBox(height:8),Text('${medicine.dose} · 매일 ${medicine.timeLabel}'),
-          const SizedBox(height:6),Text(!medicine.reminderEnabled?'복약 알림 꺼짐':medicine.useAlarm?'소리 알람 사용 중':'일반 알림 사용 중'),
+          const SizedBox(height:6),Text(!medicine.isTaking?'현재 복용하지 않음':!medicine.reminderEnabled?'복약 알림 꺼짐':medicine.useAlarm?'소리 알람 사용 중':'일반 알림 사용 중'),
           const SizedBox(height:18),_InfoLine(label:'성분',value:medicine.ingredient),_InfoLine(label:'효능',value:medicine.effect),_InfoLine(label:'복용 안내',value:medicine.instructions),
           const SizedBox(height:8),const Text('복용 방법은 처방전이나 약 봉투의 안내를 우선 확인하세요.',style:TextStyle(color:Color(0xFF66736F),fontSize:13)),
           const SizedBox(height:16),Row(children:[
@@ -476,14 +544,54 @@ class PharmacistPage extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final now = DateTime.now();
+    final current = medicines.where((medicine) => medicine.isTaking).toList();
+    final history = medicines.where((medicine) => !medicine.isTaking).toList();
+
+    Widget medicineCard(Medication medicine) {
+      final stoppedAt = medicine.stoppedAt == null
+          ? null
+          : DateTime.fromMillisecondsSinceEpoch(medicine.stoppedAt!);
+      return Card(
+        child: Padding(
+          padding: const EdgeInsets.all(18),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  Icon(Icons.medication,
+                      color: medicine.isTaking
+                          ? const Color(0xFF267B73)
+                          : const Color(0xFF89938F)),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: Text(medicine.name,
+                        style: Theme.of(context).textTheme.titleMedium),
+                  ),
+                  Text(medicine.isTaking ? '복용 중' : '복용하지 않음'),
+                ],
+              ),
+              const SizedBox(height: 12),
+              Text('1회 ${medicine.dose} · 매일 ${medicine.timeLabel}'),
+              if (stoppedAt != null)
+                Text('복용 중단일: ${stoppedAt.year}.${stoppedAt.month.toString().padLeft(2, '0')}.${stoppedAt.day.toString().padLeft(2, '0')}'),
+              if (medicine.ingredient.isNotEmpty)
+                Text('성분: ${medicine.ingredient}'),
+              if (medicine.instructions.isNotEmpty)
+                Text('복용 안내: ${medicine.instructions}'),
+            ],
+          ),
+        ),
+      );
+    }
+
     return ListView(
       padding: const EdgeInsets.fromLTRB(20, 20, 20, 28),
       children: [
-        Text('현재 복용 중인 약',
-            style: Theme.of(context).textTheme.headlineSmall),
+        Text('복용 이력', style: Theme.of(context).textTheme.headlineSmall),
         const SizedBox(height: 6),
         const Text(
-          '약사나 의료진에게 보여줄 수 있는 복용 목록이에요.',
+          '약사나 의료진에게 현재 복용약과 과거 복용약을 함께 보여줄 수 있어요.',
           style: TextStyle(color: Color(0xFF66736F)),
         ),
         const SizedBox(height: 18),
@@ -500,7 +608,7 @@ class PharmacistPage extends StatelessWidget {
               SizedBox(width: 12),
               Expanded(
                 child: Text(
-                  '약 봉투나 처방전과 함께 보여주세요. 이 목록은 직접 입력한 내용입니다.',
+                  '복용 상태는 직접 기록한 내용이에요. 약 봉투나 처방전과 함께 확인해 주세요.',
                   style: TextStyle(height: 1.45),
                 ),
               ),
@@ -512,38 +620,28 @@ class PharmacistPage extends StatelessWidget {
           const Center(child: CircularProgressIndicator())
         else if (medicines.isEmpty)
           const _EmptyCard(onAdd: null, compact: true)
-        else
-          ...medicines.map(
-            (medicine) => Card(
-              child: Padding(
-                padding: const EdgeInsets.all(18),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Row(
-                      children: [
-                        const Icon(Icons.medication, color: Color(0xFF267B73)),
-                        const SizedBox(width: 10),
-                        Expanded(
-                          child: Text(medicine.name,
-                              style: Theme.of(context).textTheme.titleMedium),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 12),
-                    Text('1회 ${medicine.dose} · 매일 ${medicine.timeLabel}'),
-                    if (medicine.ingredient.isNotEmpty)
-                      Text('성분: ${medicine.ingredient}'),
-                    if (medicine.instructions.isNotEmpty)
-                      Text('복용 안내: ${medicine.instructions}'),
-                  ],
-                ),
-              ),
-            ),
-          ),
+        else ...[
+          Text('복용 중 (${current.length})',
+              style: Theme.of(context).textTheme.titleMedium),
+          const SizedBox(height: 8),
+          if (current.isEmpty)
+            const Padding(
+              padding: EdgeInsets.only(bottom: 12),
+              child: Text('현재 복용 중인 약이 없어요.'),
+            )
+          else
+            ...current.map(medicineCard),
+          if (history.isNotEmpty) ...[
+            const SizedBox(height: 14),
+            Text('과거 복용약 (${history.length})',
+                style: Theme.of(context).textTheme.titleMedium),
+            const SizedBox(height: 8),
+            ...history.map(medicineCard),
+          ],
+        ],
         const SizedBox(height: 8),
         Text(
-          '등록 ${medicines.length}종 · ${now.year}.${now.month.toString().padLeft(2, '0')}.${now.day.toString().padLeft(2, '0')} 기준',
+          '복용 중 ${current.length}종 · 과거 복용 ${history.length}종 · ${now.year}.${now.month.toString().padLeft(2, '0')}.${now.day.toString().padLeft(2, '0')} 기준',
           textAlign: TextAlign.center,
           style: const TextStyle(color: Color(0xFF66736F), fontSize: 13),
         ),
@@ -564,14 +662,14 @@ class _AddMedicationSheetState extends State<AddMedicationSheet> {
   final _formKey = GlobalKey<FormState>();
   late final TextEditingController _name,_dose,_ingredient,_effect,_instructions;
   late TimeOfDay _time;
-  late bool _reminderEnabled,_useAlarm;
+  late bool _reminderEnabled,_useAlarm,_isTaking;
   @override
   void initState(){super.initState();final m=widget.initialMedication;
     _name=TextEditingController(text:m?.name??'');_dose=TextEditingController(text:m?.dose??'1정');
     _ingredient=TextEditingController(text:m?.ingredient??'');_effect=TextEditingController(text:m?.effect??'');
     _instructions=TextEditingController(text:m?.instructions??'');
     _time=m==null?const TimeOfDay(hour:11,minute:0):TimeOfDay(hour:m.hour,minute:m.minute);
-    _reminderEnabled=m?.reminderEnabled??true;_useAlarm=m?.useAlarm??false;
+    _reminderEnabled=m?.reminderEnabled??true;_useAlarm=m?.useAlarm??false;_isTaking=m?.isTaking??true;
   }
 
   @override
@@ -606,6 +704,8 @@ class _AddMedicationSheetState extends State<AddMedicationSheet> {
         instructions: _instructions.text.trim(),
         reminderEnabled:_reminderEnabled,
         useAlarm:_useAlarm,
+        isTaking:_isTaking,
+        stoppedAt:_isTaking?null:(m?.isTaking==false?m?.stoppedAt:DateTime.now().millisecondsSinceEpoch),
       ),
     );
   }
@@ -664,13 +764,22 @@ class _AddMedicationSheetState extends State<AddMedicationSheet> {
               ),
             ),
             const SizedBox(height:12),
-            SwitchListTile(contentPadding:EdgeInsets.zero,title:const Text('복약 알림 받기'),subtitle:const Text('원할 때 이 약의 알림을 끌 수 있어요.'),value:_reminderEnabled,onChanged:(v)=>setState(()=>_reminderEnabled=v)),
+            const Text('복용 상태'),
+            Wrap(spacing:8,children:[
+              ChoiceChip(label:const Text('복용 중'),selected:_isTaking,onSelected:(_)=>setState(()=>_isTaking=true)),
+              ChoiceChip(label:const Text('복용하지 않음'),selected:!_isTaking,onSelected:(_)=>setState(()=>_isTaking=false)),
+            ]),
+            if(!_isTaking)
+              const Padding(padding:EdgeInsets.only(top:6),child:Text('복용하지 않음으로 저장하면 알림은 중지되고, 약사 화면의 과거 복용약에 남아요.',style:TextStyle(color:Color(0xFF66736F),fontSize:13))),
+            if(_isTaking)...[
+              SwitchListTile(contentPadding:EdgeInsets.zero,title:const Text('복약 알림 받기'),subtitle:const Text('원할 때 이 약의 알림을 끌 수 있어요.'),value:_reminderEnabled,onChanged:(v)=>setState(()=>_reminderEnabled=v)),
             if(_reminderEnabled)...[
               const Text('알림 방식'),Wrap(spacing:8,children:[
                 ChoiceChip(avatar:const Icon(Icons.notifications_outlined,size:18),label:const Text('일반 알림'),selected:!_useAlarm,onSelected:(_)=>setState(()=>_useAlarm=false)),
                 ChoiceChip(avatar:const Icon(Icons.alarm,size:18),label:const Text('소리 알람'),selected:_useAlarm,onSelected:(_)=>setState(()=>_useAlarm=true)),
               ]),
               if(_useAlarm)const Text('정확한 시각에 소리와 진동으로 알려요. Android의 “알람 및 리마인더” 권한이 필요하며, 허용하지 않으면 일반 시각 알림으로 예약돼요.',style:TextStyle(color:Color(0xFF66736F),fontSize:13)),
+            ],
             ],
             const SizedBox(height:12),
             TextFormField(
@@ -790,7 +899,7 @@ class _MedicineCard extends StatelessWidget {
                     const SizedBox(height: 4),
                     Text('${medicine.dose} · 매일 ${medicine.timeLabel}',
                         style: const TextStyle(color: Color(0xFF66736F))),
-                    Text(!medicine.reminderEnabled?'알림 꺼짐':medicine.useAlarm?'소리 알람':'일반 알림',style:const TextStyle(color:Color(0xFF267B73),fontSize:12)),
+                    Text(!medicine.isTaking?'현재 복용하지 않음':!medicine.reminderEnabled?'알림 꺼짐':medicine.useAlarm?'소리 알람':'일반 알림',style:const TextStyle(color:Color(0xFF267B73),fontSize:12)),
                   ],
                 ),
               ),

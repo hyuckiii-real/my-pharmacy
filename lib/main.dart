@@ -198,6 +198,8 @@ class _MedicationHomeState extends State<MedicationHome> {
   List<Medication> _medicines = [];
   bool _loading = true;
   int _tab = 0;
+  String _ocrImageInfo = '';
+  String? _lastOcrError;
 
   @override
   void initState() {
@@ -332,9 +334,12 @@ class _MedicationHomeState extends State<MedicationHome> {
     );
 
     var recognizedText = '';
+    _lastOcrError = null;
+    _ocrImageInfo = '파일 형식: ${photo.path.split('.').last.toLowerCase()}';
     try {
       recognizedText = await _recognizeMedicationPhoto(photo.path);
     } catch (error, stackTrace) {
+      _lastOcrError ??= error.toString();
       debugPrint('Medication OCR failed: $error');
       debugPrintStack(stackTrace: stackTrace);
     }
@@ -342,8 +347,24 @@ class _MedicationHomeState extends State<MedicationHome> {
     if (!mounted) return;
     Navigator.of(context, rootNavigator: true).pop();
     if (recognizedText.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('글자를 찾지 못했어요. 직접 입력할 수 있어요.')),
+      await showDialog<void>(
+        context: context,
+        builder: (dialogContext) => AlertDialog(
+          title: Text(_lastOcrError == null ? '글자를 찾지 못했어요' : '문자 인식 오류'),
+          content: SingleChildScrollView(
+            child: SelectableText(
+              _lastOcrError == null
+                  ? '사진을 읽었지만 인식 결과가 비어 있어요. 직접 입력 화면으로 이동합니다.\n\n진단 정보: $_ocrImageInfo'
+                  : '$_lastOcrError\n\n진단 정보: $_ocrImageInfo',
+            ),
+          ),
+          actions: [
+            FilledButton(
+              onPressed: () => Navigator.pop(dialogContext),
+              child: const Text('직접 입력'),
+            ),
+          ],
+        ),
       );
     }
     await _openAddFormWithOcr(recognizedText);
@@ -351,7 +372,11 @@ class _MedicationHomeState extends State<MedicationHome> {
 
   Future<String> _recognizeMedicationPhoto(String photoPath) async {
     final bytes = await File(photoPath).readAsBytes();
+    _ocrImageInfo = '형식: ${photoPath.split('.').last.toLowerCase()}, 크기: ${bytes.length} bytes';
     final decoded = img.decodeImage(bytes);
+    if (decoded != null) {
+      _ocrImageInfo += ', 이미지: ${decoded.width}×${decoded.height}';
+    }
 
     // Some gallery photos are HEIC or another format the Dart image decoder
     // cannot handle. Keep the normal ML Kit path as a fallback for those.
@@ -416,6 +441,7 @@ class _MedicationHomeState extends State<MedicationHome> {
           .text
           .trim();
     } catch (error) {
+      _lastOcrError ??= '$script: $error';
       debugPrint('OCR failed for $script: $error');
       return '';
     } finally {

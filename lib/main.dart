@@ -75,7 +75,7 @@ class Medication {
   final String instructions;
 
   String get timeLabel =>
-      '\${hour.toString().padLeft(2, '0')}:\${minute.toString().padLeft(2, '0')}';
+      '${hour.toString().padLeft(2, '0')}:${minute.toString().padLeft(2, '0')}';
 
   Map<String, Object?> toJson() => {
         'id': id,
@@ -142,8 +142,8 @@ class ReminderService {
 
     await _plugin.zonedSchedule(
       medicine.id,
-      '\${medicine.name} 복용 시간',
-      '\${medicine.dose} 복용할 시간이에요.',
+      '${medicine.name} 복용 시간',
+      '${medicine.dose} 복용할 시간이에요.',
       first,
       const NotificationDetails(
         android: AndroidNotificationDetails(
@@ -321,7 +321,7 @@ class _MedicationHomeState extends State<MedicationHome> {
               Text(medicine.name,
                   style: Theme.of(context).textTheme.headlineSmall),
               const SizedBox(height: 8),
-              Text('\${medicine.dose} · 매일 \${medicine.timeLabel}'),
+              Text('${medicine.dose} · 매일 ${medicine.timeLabel}'),
               const SizedBox(height: 18),
               _InfoLine(label: '성분', value: medicine.ingredient),
               _InfoLine(label: '효능', value: medicine.effect),
@@ -360,7 +360,7 @@ class TodayPage extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final now = DateTime.now();
-    final date = '\${now.year}년 \${now.month}월 \${now.day}일';
+    final date = '${now.year}년 ${now.month}월 ${now.day}일';
     return ListView(
       padding: const EdgeInsets.fromLTRB(20, 18, 20, 28),
       children: [
@@ -593,11 +593,11 @@ class PharmacistPage extends StatelessWidget {
                       ],
                     ),
                     const SizedBox(height: 12),
-                    Text('1회 \${medicine.dose} · 매일 \${medicine.timeLabel}'),
+                    Text('1회 ${medicine.dose} · 매일 ${medicine.timeLabel}'),
                     if (medicine.ingredient.isNotEmpty)
-                      Text('성분: \${medicine.ingredient}'),
+                      Text('성분: ${medicine.ingredient}'),
                     if (medicine.instructions.isNotEmpty)
-                      Text('복용 안내: \${medicine.instructions}'),
+                      Text('복용 안내: ${medicine.instructions}'),
                   ],
                 ),
               ),
@@ -605,7 +605,7 @@ class PharmacistPage extends StatelessWidget {
           ),
         const SizedBox(height: 8),
         Text(
-          '등록 \${medicines.length}종 · \${now.year}.\${now.month.toString().padLeft(2, '0')}.\${now.day.toString().padLeft(2, '0')} 기준',
+          '등록 ${medicines.length}종 · ${now.year}.${now.month.toString().padLeft(2, '0')}.${now.day.toString().padLeft(2, '0')} 기준',
           textAlign: TextAlign.center,
           style: const TextStyle(color: Color(0xFF66736F), fontSize: 13),
         ),
@@ -709,7 +709,7 @@ class _AddMedicationSheetState extends State<AddMedicationSheet> {
             OutlinedButton.icon(
               onPressed: _chooseTime,
               icon: const Icon(Icons.alarm_outlined),
-              label: Text('매일 알림 \${_time.format(context)}'),
+              label: Text('매일 알림 ${_time.format(context)}'),
               style: OutlinedButton.styleFrom(
                 minimumSize: const Size.fromHeight(50),
                 shape: RoundedRectangleBorder(
@@ -833,7 +833,7 @@ class _MedicineCard extends StatelessWidget {
                     Text(medicine.name,
                         style: Theme.of(context).textTheme.titleMedium),
                     const SizedBox(height: 4),
-                    Text('\${medicine.dose} · 매일 \${medicine.timeLabel}',
+                    Text('${medicine.dose} · 매일 ${medicine.timeLabel}',
                         style: const TextStyle(color: Color(0xFF66736F))),
                   ],
                 ),

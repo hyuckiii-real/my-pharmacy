@@ -33,16 +33,21 @@ gradle_path = Path("android/app/build.gradle.kts")
 gradle = gradle_path.read_text(encoding="utf-8")
 
 if "isCoreLibraryDesugaringEnabled" not in gradle:
-    gradle = gradle.replace(
-        "android {",
-        """android {
+    if "compileOptions {" in gradle:
+        gradle = gradle.replace(
+            "compileOptions {",
+            "compileOptions {\n        isCoreLibraryDesugaringEnabled = true",
+            1,
+        )
+    else:
+        gradle = gradle.replace(
+            "android {",
+            """android {
     compileOptions {
         isCoreLibraryDesugaringEnabled = true
-        sourceCompatibility = JavaVersion.VERSION_11
-        targetCompatibility = JavaVersion.VERSION_11
     }""",
-        1,
-    )
+            1,
+        )
 
 if "coreLibraryDesugaring(" not in gradle:
     gradle = gradle.replace(

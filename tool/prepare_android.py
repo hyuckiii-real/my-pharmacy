@@ -66,5 +66,14 @@ if "text-recognition-korean" not in gradle:
             1,
         )
 
+if "text-recognition-chinese" not in gradle:
+    chinese_dependency = '    implementation("com.google.mlkit:text-recognition-chinese:16.0.1")\n'
+    if "dependencies {" in gradle:
+        gradle = gradle.replace(
+            "dependencies {",
+            "dependencies {\n" + chinese_dependency,
+            1,
+        )
+
 gradle_path.write_text(gradle, encoding="utf-8")
 print("Android notification permissions and desugaring configured.")

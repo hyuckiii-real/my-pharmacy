@@ -438,10 +438,6 @@ class _MedicationHomeState extends State<MedicationHome> {
           bestFrame = frame;
         }
       }
-      final fullPhotoName = _bestMedicationName(bestText);
-      if (fullPhotoName.isNotEmpty && _medicationNameScore(fullPhotoName) >= 5) {
-        return bestText;
-      }
       final width = bestFrame.width;
       final height = bestFrame.height;
       final leftWidth = (width * 0.62).round();
@@ -458,7 +454,9 @@ class _MedicationHomeState extends State<MedicationHome> {
       for (var index = 0; index < cropImages.length; index++) {
         var crop = cropImages[index];
         final maxDimension = crop.width > crop.height ? crop.width : crop.height;
-        final scale = (2400 / maxDimension).clamp(1.0, 1.5);
+        // Medication instructions are often tiny on package labels. Upscale
+        // crops more aggressively and OCR both the color and enhanced versions.
+        final scale = (3000 / maxDimension).clamp(1.0, 2.0);
         if (scale > 1) {
           crop = img.copyResize(crop, width: (crop.width * scale).round(),
             height: (crop.height * scale).round());
@@ -466,9 +464,18 @@ class _MedicationHomeState extends State<MedicationHome> {
         final cropFile = File('${tempDirectory.path}/label_$index.jpg');
         await cropFile.writeAsBytes(img.encodeJpg(crop, quality: 96));
         final cropText = await _recognizeAtPath(cropFile.path, TextRecognitionScript.korean);
-        if (cropText.isEmpty) continue;
-        recognizedParts.add(cropText);
-        if (_bestMedicationName(cropText).isNotEmpty) break;
+        if (cropText.isNotEmpty) recognizedParts.add(cropText);
+
+        // Grayscale and stronger contrast help recover small dosage text.
+        img.grayscale(crop);
+        img.adjustColor(crop, contrast: 1.4, brightness: 1.04);
+        final enhancedFile = File('${tempDirectory.path}/label_enhanced_$index.jpg');
+        await enhancedFile.writeAsBytes(img.encodeJpg(crop, quality: 96));
+        final enhancedText = await _recognizeAtPath(
+          enhancedFile.path,
+          TextRecognitionScript.korean,
+        );
+        if (enhancedText.isNotEmpty) recognizedParts.add(enhancedText);
       }
       final uniqueLines = <String>[];
       for (final part in recognizedParts) {

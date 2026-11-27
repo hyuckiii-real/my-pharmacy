@@ -28,6 +28,50 @@ receivers = """        <receiver
 """
 if "ScheduledNotificationReceiver" not in manifest:
     manifest = manifest.replace("    </application>", receivers + "    </application>", 1)
+if "xmlns:tools=" not in manifest:
+    manifest = manifest.replace(
+        "<manifest ",
+        '<manifest xmlns:tools="http://schemas.android.com/tools" ',
+        1,
+    )
+
+if "MlKitInitProvider" not in manifest:
+    mlkit_provider = """        <provider
+            android:name="com.google.mlkit.common.internal.MlKitInitProvider"
+            android:authorities="${applicationId}.mlkitinitprovider"
+            android:exported="false"
+            android:initOrder="99"
+            tools:node="merge" />
+"""
+    manifest = manifest.replace(
+        "    </application>",
+        mlkit_provider + "    </application>",
+        1,
+    )
+
+if "MlKitComponentDiscoveryService" not in manifest:
+    mlkit_discovery_service = """        <service
+            android:name="com.google.mlkit.common.internal.MlKitComponentDiscoveryService"
+            android:directBootAware="true"
+            android:exported="false"
+            tools:node="merge">
+            <meta-data
+                android:name="com.google.firebase.components:com.google.mlkit.common.internal.CommonComponentRegistrar"
+                android:value="com.google.firebase.components.ComponentRegistrar" />
+            <meta-data
+                android:name="com.google.firebase.components:com.google.mlkit.vision.common.internal.VisionCommonRegistrar"
+                android:value="com.google.firebase.components.ComponentRegistrar" />
+            <meta-data
+                android:name="com.google.firebase.components:com.google.mlkit.vision.text.internal.TextRegistrar"
+                android:value="com.google.firebase.components.ComponentRegistrar" />
+        </service>
+"""
+    manifest = manifest.replace(
+        "    </application>",
+        mlkit_discovery_service + "    </application>",
+        1,
+    )
+
 manifest_path.write_text(manifest, encoding="utf-8")
 
 gradle_path = Path("android/app/build.gradle.kts")

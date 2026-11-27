@@ -526,24 +526,26 @@ class _MedicationHomeState extends State<MedicationHome> {
     const instructionWords = [
       '감기', '기침', '콧물', '몸살', '목통', '코막힘',
       '복용', '용법', '용량', '식전', '식후', '취침',
-      '연질캡슐', '캡슐', '정', '포', '회', '일',
+      '주의사항', '효능', '효과', '성인용', '일반의약품',
     ];
     if (instructionWords.any(lower.contains)) return -1;
-    if (RegExp(r'^\\d').hasMatch(line) && !RegExp(r'[가-힣A-Za-z]').hasMatch(line)) {
+    if (RegExp(r'^\d+.*(연질캡슐|캡슐|정|포)$', caseSensitive: false)
+            .hasMatch(line) ||
+        RegExp(r'^\d+\s*일\s*\d+\s*회').hasMatch(line)) {
       return -1;
     }
 
     var score = 2;
     if (RegExp(r'[가-힣]').hasMatch(line)) score += 2;
     if (RegExp(r'[A-Za-z]').hasMatch(line)) score += 4;
-    if (RegExp(r'\\d').hasMatch(line)) score += 1;
+    if (RegExp(r'\d').hasMatch(line)) score += 1;
     if (line.length <= 10) score += 1;
     return score;
   }
 
   String _bestMedicationName(String text) {
     final candidates = text
-        .split(RegExp(r'\\r?\\n'))
+        .split(RegExp(r'\r?\n'))
         .map((line) => line.trim())
         .where((line) => _medicationNameScore(line) > 0)
         .toList()

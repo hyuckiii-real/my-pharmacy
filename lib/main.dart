@@ -378,8 +378,7 @@ class _MedicationHomeState extends State<MedicationHome> {
       _ocrImageInfo += ', 이미지: ${decoded.width}×${decoded.height}';
     }
 
-    // Some gallery photos are HEIC or another format the Dart image decoder
-    // cannot handle. Keep the normal ML Kit path as a fallback for those.
+    // HEIC 등 Dart 이미지 라이브러리가 열 수 없는 형식은 원본을 바로 읽습니다.
     if (decoded == null) {
       final koreanText = await _recognizeAtPath(
         photoPath,
@@ -389,14 +388,15 @@ class _MedicationHomeState extends State<MedicationHome> {
       return _recognizeAtPath(photoPath, TextRecognitionScript.latin);
     }
 
-    // Bake EXIF orientation first, then try the other common label directions.
-    // Medicine boxes are often photographed with their text turned sideways.
     final oriented = img.bakeOrientation(decoded);
     final tempDirectory =
         await Directory.systemTemp.createTemp('my_pharmacy_ocr_');
     try {
       var bestText = '';
       var bestScore = 0;
+      var bestFrame = oriented;
+
+      // 약 상자의 글자가 옆으로 찍힌 경우까지 방향별로 비교합니다.
       for (final angle in [0, 90, 270, 180]) {
         final frame = angle == 0
             ? oriented
@@ -422,10 +422,72 @@ class _MedicationHomeState extends State<MedicationHome> {
         if (score > bestScore) {
           bestScore = score;
           bestText = text;
+          bestFrame = frame;
         }
-        if (RegExp(r'[가-힣]').allMatches(bestText).length >= 12) break;
       }
-      return bestText;
+
+      // 전체 사진에서 용법만 잡히면, 상자 제목이 있는 영역을 분리해
+      // 글자를 크게 만든 뒤 다시 읽습니다.
+      final width = bestFrame.width;
+      final height = bestFrame.height;
+      final leftWidth = (width * 0.62).round();
+      final topHeight = (height * 0.62).round();
+      final cropImages = <img.Image>[
+        img.copyCrop(bestFrame, x: 0, y: 0, width: width, height: topHeight),
+        img.copyCrop(bestFrame, x: 0, y: height - topHeight, width: width, height: topHeight),
+        img.copyCrop(bestFrame, x: 0, y: 0, width: leftWidth, height: height),
+        img.copyCrop(bestFrame, x: width - leftWidth, y: 0, width: leftWidth, height: height),
+        img.copyCrop(
+          bestFrame,
+          x: (width * 0.15).round(),
+          y: (height * 0.15).round(),
+          width: (width * 0.70).round(),
+          height: (height * 0.70).round(),
+        ),
+      ];
+
+      final recognizedParts = <String>[bestText];
+      for (var index = 0; index < cropImages.length; index++) {
+        var crop = cropImages[index];
+        final maxDimension = crop.width > crop.height ? crop.width : crop.height;
+        final scale = (2400 / maxDimension).clamp(1.0, 1.5);
+        if (scale > 1) {
+          crop = img.copyResize(
+            crop,
+            width: (crop.width * scale).round(),
+            height: (crop.height * scale).round(),
+          );
+        }
+
+        final cropFile = File('${tempDirectory.path}/label_$index.jpg');
+        await cropFile.writeAsBytes(img.encodeJpg(crop, quality: 96));
+        final cropText = await _recognizeAtPath(
+          cropFile.path,
+          TextRecognitionScript.korean,
+        );
+        if (cropText.isEmpty) continue;
+        recognizedParts.add(cropText);
+
+        // 제품명처럼 보이는 후보를 찾으면 남은 영역은 생략해 대기 시간을 줄입니다.
+        if (_bestMedicationName(cropText).isNotEmpty) break;
+      }
+
+      final uniqueLines = <String>[];
+      for (final part in recognizedParts) {
+        for (final rawLine in part.split(RegExp(r'\r?\n'))) {
+          final line = rawLine.trim();
+          if (line.isEmpty) continue;
+          final normalized = line.toLowerCase().replaceAll(RegExp(r'\s+'), '');
+          if (!uniqueLines.any(
+            (existing) =>
+                existing.toLowerCase().replaceAll(RegExp(r'\s+'), '') ==
+                normalized,
+          )) {
+            uniqueLines.add(line);
+          }
+        }
+      }
+      return uniqueLines.join('\n');
     } finally {
       await tempDirectory.delete(recursive: true);
     }
@@ -453,6 +515,42 @@ class _MedicationHomeState extends State<MedicationHome> {
     final compactLength = text.replaceAll(RegExp(r'\s+'), '').runes.length;
     final koreanCount = RegExp(r'[가-힣]').allMatches(text).length;
     return compactLength + koreanCount * 4;
+  }
+
+  int _medicationNameScore(String value) {
+    final line = value.trim();
+    if (line.length < 2 || line.length > 18) return -1;
+    if (!RegExp(r'[가-힣A-Za-z]').hasMatch(line)) return -1;
+
+    final lower = line.toLowerCase();
+    const instructionWords = [
+      '감기', '기침', '콧물', '몸살', '목통', '코막힘',
+      '복용', '용법', '용량', '식전', '식후', '취침',
+      '연질캡슐', '캡슐', '정', '포', '회', '일',
+    ];
+    if (instructionWords.any(lower.contains)) return -1;
+    if (RegExp(r'^\\d').hasMatch(line) && !RegExp(r'[가-힣A-Za-z]').hasMatch(line)) {
+      return -1;
+    }
+
+    var score = 2;
+    if (RegExp(r'[가-힣]').hasMatch(line)) score += 2;
+    if (RegExp(r'[A-Za-z]').hasMatch(line)) score += 4;
+    if (RegExp(r'\\d').hasMatch(line)) score += 1;
+    if (line.length <= 10) score += 1;
+    return score;
+  }
+
+  String _bestMedicationName(String text) {
+    final candidates = text
+        .split(RegExp(r'\\r?\\n'))
+        .map((line) => line.trim())
+        .where((line) => _medicationNameScore(line) > 0)
+        .toList()
+      ..sort(
+        (a, b) => _medicationNameScore(b).compareTo(_medicationNameScore(a)),
+      );
+    return candidates.isEmpty ? '' : candidates.first;
   }
 
   Future<void> _openAddFormWithOcr(String recognizedText) async {
@@ -861,7 +959,7 @@ class _AddMedicationSheetState extends State<AddMedicationSheet> {
   late bool _reminderEnabled,_useAlarm,_isTaking;
   @override
   void initState(){super.initState();final m=widget.initialMedication;
-    _name=TextEditingController(text:m?.name??'');_dose=TextEditingController(text:m?.dose??'1정');
+    _name=TextEditingController(text:m?.name??_bestMedicationName(widget.ocrText??''));_dose=TextEditingController(text:m?.dose??'1정');
     _ingredient=TextEditingController(text:m?.ingredient??'');_effect=TextEditingController(text:m?.effect??'');
     _instructions=TextEditingController(text:m?.instructions??'');
     _time=m==null?const TimeOfDay(hour:11,minute:0):TimeOfDay(hour:m.hour,minute:m.minute);
@@ -935,10 +1033,15 @@ class _AddMedicationSheetState extends State<AddMedicationSheet> {
     final ocrCandidates = (ocrText ?? '')
         .split(RegExp(r'\r?\n'))
         .map((line) => line.trim())
-        .where((line) => line.length >= 2 && line.length <= 32)
-        .where((line) => !RegExp(r'^(환자|연락처|전화|주소|약국|처방)').hasMatch(line))
-        .take(6)
-        .toList();
+        .where((line) => _medicationNameScore(line) > 0)
+        .toSet()
+        .toList()
+      ..sort(
+        (a, b) => _medicationNameScore(b).compareTo(_medicationNameScore(a)),
+      );
+    if (ocrCandidates.length > 6) {
+      ocrCandidates.removeRange(6, ocrCandidates.length);
+    }
     return Padding(
       padding: EdgeInsets.fromLTRB(20, 14, 20, 20 + bottom),
       child: Form(
@@ -974,7 +1077,7 @@ class _AddMedicationSheetState extends State<AddMedicationSheet> {
                     ),
                     if (ocrCandidates.isNotEmpty) ...[
                       const SizedBox(height: 10),
-                      const Text('약 이름 후보를 눌러 입력할 수 있어요.'),
+                      const Text('제품명 후보를 눌러 입력할 수 있어요. 후보가 없으면 약 봉투의 이름을 직접 적어 주세요.'),
                       const SizedBox(height: 6),
                       Wrap(
                         spacing: 6,

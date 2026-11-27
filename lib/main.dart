@@ -1060,7 +1060,7 @@ class _AddMedicationSheetState extends State<AddMedicationSheet> {
                       const SizedBox(height: 8),
                       const Text('사진에서 읽은 전체 글자'),
                       const SizedBox(height: 4),
-                      SelectableText(ocrText, maxLines: 5),
+                      SelectableText(ocrText, maxLines: 12),
                     ],
                   ],
                 ),

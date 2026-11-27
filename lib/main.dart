@@ -437,6 +437,13 @@ class _MedicationHomeState extends State<MedicationHome> {
         }
       }
 
+      // 전체 사진에서 제품명 후보를 찾았으면 불필요한 추가 스캔을 건너뜁니다.
+      final fullPhotoName = _bestMedicationName(bestText);
+      if (fullPhotoName.isNotEmpty &&
+          _medicationNameScore(fullPhotoName) >= 5) {
+        return bestText;
+      }
+
       // 전체 사진에서 용법만 잡히면, 상자 제목이 있는 영역을 분리해
       // 글자를 크게 만든 뒤 다시 읽습니다.
       final width = bestFrame.width;

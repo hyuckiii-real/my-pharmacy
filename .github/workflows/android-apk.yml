@@ -50,8 +50,8 @@ jobs:
         run: |
           mkdir -p build/ocr-diagnostics
           flutter --version > build/ocr-diagnostics/flutter-version.txt 2>&1 || true
-          find android/app/build/intermediates -type f -name AndroidManifest.xml -print -exec cp --parents {} build/ocr-diagnostics/ \; 2>/dev/null || true
-          find android/app/build/outputs/logs -type f -iname '*manifest*report*' -print -exec cp --parents {} build/ocr-diagnostics/ \; 2>/dev/null || true
+          find build/app/intermediates -type f -name AndroidManifest.xml -print -exec cp --parents {} build/ocr-diagnostics/ \; 2>/dev/null || true
+          find build/app/outputs/logs -type f -iname '*manifest*report*' -print -exec cp --parents {} build/ocr-diagnostics/ \; 2>/dev/null || true
           find build/app/outputs/mapping -type f -name mapping.txt -print -exec cp --parents {} build/ocr-diagnostics/ \; 2>/dev/null || true
           find build/app/outputs -type f -name '*proguard*' -print -exec cp --parents {} build/ocr-diagnostics/ \; 2>/dev/null || true
           (cd android && ./gradlew :app:dependencies --configuration releaseRuntimeClasspath) > build/ocr-diagnostics/release-runtime-dependencies.txt 2>&1 || true
@@ -59,7 +59,7 @@ jobs:
           if [ -n "$AAPT" ] && [ -f build/app/outputs/flutter-apk/app-release.apk ]; then
             "$AAPT" dump xmltree build/app/outputs/flutter-apk/app-release.apk AndroidManifest.xml > build/ocr-diagnostics/apk-manifest.txt 2>&1 || true
           fi
-          grep -R -n -E 'MlKitInitProvider|MlKitComponentDiscoveryService|TextRegistrar|CommonComponentRegistrar|text-recognition-korean|isMinifyEnabled|isShrinkResources' android/app/build/intermediates android/app/build/outputs build/app/outputs/mapping 2>/dev/null > build/ocr-diagnostics/ocr-registration-summary.txt || true
+          grep -R -n -E 'MlKitInitProvider|MlKitComponentDiscoveryService|TextRegistrar|CommonComponentRegistrar|text-recognition-korean|isMinifyEnabled|isShrinkResources' build/app/intermediates build/app/outputs/mapping 2>/dev/null > build/ocr-diagnostics/ocr-registration-summary.txt || true
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
